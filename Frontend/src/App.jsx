@@ -46,7 +46,7 @@ function App() {
     const mimeType = "image/png";
 
     try {
-      const response = await fetch("http://localhost:5000/analyze-image", {
+      const response = await fetch("https://image-analyze.vercel.app/analyze-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64: base64String, mimeType }),
