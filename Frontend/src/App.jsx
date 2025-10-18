@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import "./App.css";
 
 function App() {
@@ -7,138 +7,108 @@ function App() {
   const [capturedImage, setCapturedImage] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [devices, setDevices] = useState([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(null);
 
-  // Start camera
-  const startCamera = async () => {
+  // List available video devices
+  const getVideoDevices = async () => {
+    const allDevices = await navigator.mediaDevices.enumerateDevices();
+    const videoDevices = allDevices.filter((d) => d.kind === "videoinput");
+    setDevices(videoDevices);
+    if (videoDevices.length > 0) setSelectedDeviceId(videoDevices[0].deviceId);
+  };
+
+  // Start camera with selected device
+  const startCamera = async (deviceId) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: deviceId ? { exact: deviceId } : undefined },
+      });
+      if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) {
-      alert("Unable to access camera. Please allow camera permissions.");
+      alert("Unable to access camera. Please allow permissions.");
     }
   };
 
-  // Capture image from video feed
+  // Switch camera
+  const handleDeviceChange = (e) => {
+    const deviceId = e.target.value;
+    setSelectedDeviceId(deviceId);
+    startCamera(deviceId);
+  };
+
+  // Capture image
   const capturePhoto = () => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
+    if (!canvas || !video) return;
 
-    if (canvas && video) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const imageBase64 = canvas.toDataURL("image/png");
-      setCapturedImage(imageBase64);
-      setResult(null);
-    }
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setCapturedImage(canvas.toDataURL("image/png"));
+    setResult(null);
   };
 
-  // Send captured image to backend
+  // Analyze image
   const handleAnalyze = async () => {
     if (!capturedImage) return alert("Please capture an image first.");
-
     setLoading(true);
     const base64String = capturedImage.split(",")[1];
-    const mimeType = "image/png";
 
     try {
-      const response = await fetch("https://image-analyze.vercel.app/analyze-image", {
+      const res = await fetch("https://image-analyze.vercel.app/analyze-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64String, mimeType }),
+        body: JSON.stringify({ imageBase64: base64String, mimeType: "image/png" }),
       });
-
-      const data = await response.json();
+      const data = await res.json();
       setResult(data);
-    } catch (err) {
-      alert("Failed to fetch from backend. Make sure your server is running.");
+    } catch {
+      alert("Failed to fetch backend. Make sure server is running.");
     }
-
     setLoading(false);
   };
 
-  // Render different response types
-  const renderResponse = (data) => {
-    if (!data) return null;
+  useEffect(() => {
+    getVideoDevices();
+  }, []);
 
-    if (data.questions) {
-      return (
-        <div>
-          <h3>🧠 MCQ Answers</h3>
-          {data.questions.map((q, idx) => (
-            <div key={idx} className="card">
-              <p><b>Q{idx + 1}:</b> {q.question}</p>
-              {q.options && (
-                <ul>
-                  {q.options.map((opt, i) => (
-                    <li key={i}>{opt}</li>
-                  ))}
-                </ul>
-              )}
-              <p><b>✅ Answer:</b> {q.answer}</p>
-            </div>
-          ))}
-          {data.definition && (
-            <p className="definition"><b>📘 Definition:</b> {data.definition}</p>
-          )}
-        </div>
-      );
-    }
-
-    if (data.code) {
-      return (
-        <div>
-          <h3>💻 Code Solution</h3>
-          {data.problemstatement && <p><b>Problem:</b> {data.problemstatement}</p>}
-          {data.question && <p><b>Question:</b> {data.question}</p>}
-          {data.definition && <p><b>📘 Explanation:</b> {data.definition}</p>}
-          <pre className="code-block">{data.code}</pre>
-        </div>
-      );
-    }
-
-    if (data.content && data.definition) {
-      return (
-        <div>
-          <h3>📖 Content</h3>
-          <p>{data.content}</p>
-          <h3>📘 Definition</h3>
-          <p>{data.definition}</p>
-        </div>
-      );
-    }
-
-    return (
-      <div>
-        <h3>Raw JSON Output</h3>
-        <pre>{JSON.stringify(data, null, 2)}</pre>
-      </div>
-    );
-  };
+  useEffect(() => {
+    if (selectedDeviceId) startCamera(selectedDeviceId);
+  }, [selectedDeviceId]);
 
   return (
     <div className="App">
-      <h1>📷 Live Camera Analyzer</h1>
+      <h1>📷 Multi-Camera Analyzer</h1>
 
-      {/* Camera preview */}
-      <div className="camera-container">
-        <video ref={videoRef} autoPlay playsInline className="video-feed" />
-        <canvas ref={canvasRef} style={{ display: "none" }} />
-      </div>
+      {/* Camera selection */}
+      {devices.length > 1 && (
+        <div>
+          <label>Select Camera: </label>
+          <select value={selectedDeviceId} onChange={handleDeviceChange}>
+            {devices.map((d, i) => (
+              <option key={i} value={d.deviceId}>
+                {d.label || `Camera ${i + 1}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Video feed */}
+      <video ref={videoRef} autoPlay playsInline className="video-feed" />
+      <canvas ref={canvasRef} style={{ display: "none" }} />
 
       <div className="btn-group">
-        <button onClick={startCamera}>Start Camera</button>
         <button onClick={capturePhoto}>📸 Capture</button>
         <button onClick={handleAnalyze} disabled={loading}>
           {loading ? "Analyzing..." : "🔍 Analyze"}
         </button>
       </div>
 
-      {/* Show captured image */}
+      {/* Preview */}
       {capturedImage && (
         <div className="preview">
           <h3>Captured Image:</h3>
@@ -148,9 +118,7 @@ function App() {
 
       {loading && <p>⏳ Processing image...</p>}
 
-      {!loading && result && (
-        <div className="result-box">{renderResponse(result)}</div>
-      )}
+      {!loading && result && <div className="result-box">{JSON.stringify(result, null, 2)}</div>}
     </div>
   );
 }
